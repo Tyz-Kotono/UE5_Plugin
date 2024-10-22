@@ -1,0 +1,21 @@
+﻿#include "/Engine/Private/Common.ush"
+#include "/Engine/Public/Platform.ush"
+float3 TargetColour;
+Texture2D<float4> SceneColorTexture;
+
+
+float4 MainPS(float4 SvPosition : SV_POSITION) : SV_Target0
+{
+	const float4 SceneColour = SceneColorTexture.Load(int3(SvPosition.xy, 0));
+	float3 FinalColor = SceneColour.rgb * TargetColour;
+
+	uint width, height;
+	SceneColorTexture.GetDimensions(width, height);
+	float2 quarterSize = float2(width, height) / 2.0;
+	
+	float mask1 = step(quarterSize.x, SvPosition.x) * step(quarterSize.y, SvPosition.y);
+	float mask2 = step(SvPosition.x, quarterSize.x) * step(SvPosition.y, quarterSize.y);
+	float mask = mask1 + mask2;
+	
+	return lerp(float4(SceneColour), float4(FinalColor, 1.0), mask);
+}

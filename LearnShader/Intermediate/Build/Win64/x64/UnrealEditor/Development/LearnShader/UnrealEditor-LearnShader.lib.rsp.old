@@ -1,0 +1,12 @@
+/NOLOGO
+/errorReport:prompt
+/MACHINE:x64
+/SUBSYSTEM:WINDOWS
+/DEF
+/NAME:"UnrealEditor-LearnShader.dll"
+/IGNORE:4221
+/NODEFAULTLIB
+"..\Intermediate\Build\Win64\x64\UnrealEditor\Development\UnrealEd\SharedPCH.UnrealEd.Cpp20.h.obj"
+"E:\Render\SUE54Render\Plugins\LearnShader\Intermediate\Build\Win64\x64\UnrealEditor\Development\LearnShader\Module.LearnShader.cpp.obj"
+"..\Intermediate\Build\Win64\x64\UnrealEditor\Development\Default.rc2.res"
+/OUT:"E:\Render\SUE54Render\Plugins\LearnShader\Intermediate\Build\Win64\x64\UnrealEditor\Development\LearnShader\UnrealEditor-LearnShader.lib"

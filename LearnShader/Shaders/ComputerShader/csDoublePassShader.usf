@@ -1,0 +1,79 @@
+﻿#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/DeferredShadingCommon.ush"
+#include "/Engine/Public/Platform.ush"
+
+struct CSstruct
+{
+	float4 Color;
+	float Distance; 
+};
+
+// 只读缓冲区
+StructuredBuffer<CSstruct> CSBuffer;
+
+Texture2D<float4> SceneColorTexture;
+SamplerState BlurTexSampler;
+
+RWTexture2D<float4> BlurTex;
+
+groupshared float4 SharedColors[THREADS_X+2][THREADS_Y+2];
+
+[numthreads(THREADS_X, THREADS_Y, 1)]
+void BlurMain_Kernel(uint3 DispatchThreadID : SV_DispatchThreadID, uint3 GroupThreadID : SV_GroupThreadID, uint3 GroupID : SV_GroupID)
+{
+	uint2 TextureSize;
+	SceneColorTexture.GetDimensions(TextureSize.x, TextureSize.y);
+	float2 PixelSize = 1.0 / TextureSize;
+
+	// 加载中心像素到共享内存
+	SharedColors[GroupThreadID.x+1][GroupThreadID.y+1] = SceneColorTexture.Sample(BlurTexSampler, DispatchThreadID.xy * PixelSize);
+
+	// 加载边界像素到共享内存
+	if (GroupThreadID.x == 0) {
+		SharedColors[0][GroupThreadID.y+1] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(-1, 0)) * PixelSize);
+	}
+	if (GroupThreadID.x == THREADS_X-1) {
+		SharedColors[THREADS_X+1][GroupThreadID.y+1] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(1, 0)) * PixelSize);
+	}
+	if (GroupThreadID.y == 0) {
+		SharedColors[GroupThreadID.x+1][0] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(0, -1)) * PixelSize);
+	}
+	if (GroupThreadID.y == THREADS_Y-1) {
+		SharedColors[GroupThreadID.x+1][THREADS_Y+1] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(0, 1)) * PixelSize);
+	}
+	if (GroupThreadID.x == 0 && GroupThreadID.y == 0) {
+		SharedColors[0][0] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(-1, -1)) * PixelSize);
+	}
+	if (GroupThreadID.x == THREADS_X-1 && GroupThreadID.y == 0) {
+		SharedColors[THREADS_X+1][0] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(1, -1)) * PixelSize);
+	}
+	if (GroupThreadID.x == 0 && GroupThreadID.y == THREADS_Y-1) {
+		SharedColors[0][THREADS_Y+1] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(-1, 1)) * PixelSize);
+	}
+	if (GroupThreadID.x == THREADS_X-1 && GroupThreadID.y == THREADS_Y-1) {
+		SharedColors[THREADS_X+1][THREADS_Y+1] = SceneColorTexture.Sample(BlurTexSampler, (DispatchThreadID.xy + uint2(1, 1)) * PixelSize);
+	}
+
+	// 同步线程以确保所有共享内存数据都已加载
+	GroupMemoryBarrierWithGroupSync();
+
+	float4 SceneColour = float4(0, 0, 0, 0);
+
+	// 应用高斯模糊核
+	float Kernel[3][3] = {
+		{0.05, 0.10, 0.05},
+		{0.10, 0.40, 0.10},
+		{0.05, 0.10, 0.05}
+	};
+
+	for (int x = 0; x < 3; ++x)
+	{
+		for (int y = 0; y < 3; ++y)
+		{
+			SceneColour += Kernel[x][y] * SharedColors[GroupThreadID.x+x][GroupThreadID.y+y];
+		}
+	}
+
+	// 将模糊后的颜色写入输出纹理
+	BlurTex[DispatchThreadID.xy] = SceneColour;
+}

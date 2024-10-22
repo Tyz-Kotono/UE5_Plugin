@@ -1,0 +1,22 @@
+{
+	"RemapUnityFiles": 
+	{
+		"Module.LearnShader.cpp.obj": [
+			"LearnLibrary.gen.cpp.obj",
+			"LearnShader.init.gen.cpp.obj",
+			"LearnShaderSubsystem.gen.cpp.obj",
+			"RenderTargetSubsystem.gen.cpp.obj",
+			"RTLibrary.gen.cpp.obj",
+			"DrawShader.cpp.obj",
+			"LearnLibrary.cpp.obj",
+			"LearnShader.cpp.obj",
+			"LearnShaderPS.cpp.obj",
+			"LearnShaderSceneViewExtension.cpp.obj",
+			"LearnShaderSubsystem.cpp.obj",
+			"RenderTargetSceneViewExtension.cpp.obj",
+			"RenderTargetShader.cpp.obj",
+			"RenderTargetSubsystem.cpp.obj",
+			"RTLibrary.cpp.obj"
+		]
+	}
+}
