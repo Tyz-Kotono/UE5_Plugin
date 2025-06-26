@@ -20,11 +20,24 @@ public:
 	virtual void PostRenderViewFamily_RenderThread(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily) override {};
 
 
-	//
+	//Base Data
 	TObjectPtr<UShaderExampleDataAsset> ExampleData;
 	void SetExampleData(UShaderExampleDataAsset* Data);
 
 	//Render
-	void BaseGlobalShaderRender(FRDGBuilder& GraphBuilder,
+	void BaseGlobalShader_RenderThread(FRDGBuilder& GraphBuilder,
+	const FSceneView& View, const FPostProcessingInputs& Inputs,FIntRect Viewport,const FGlobalShaderMap* GlobalShaderMap);
+
+	//RenderTarget
+	TRefCountPtr<IPooledRenderTarget> PooledRenderTarget;
+	void RenderTarget_RenderThread(FRDGBuilder& GraphBuilder,
+	const FSceneView& View, const FPostProcessingInputs& Inputs,FIntRect Viewport,const FGlobalShaderMap* GlobalShaderMap);
+private:
+	
+	void CreatePooledRenderTarget_RenderThread();
+
+	
+public:
+	void ComputerShaderBlur_RenderThread(FRDGBuilder& GraphBuilder,
 	const FSceneView& View, const FPostProcessingInputs& Inputs,FIntRect Viewport,const FGlobalShaderMap* GlobalShaderMap);
 };
