@@ -15,6 +15,14 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QSize
 
+# 绝对路径，方便识别本地其他Python脚本
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
+from QTUI.QTWindowFunctionLibrary import button_clinked
+
+
 class QTWidget(QWidget):
     def __init__(self, parent=None):
         super(QTWidget, self).__init__(parent)
@@ -27,7 +35,13 @@ class QTWidget(QWidget):
         button = QPushButton("导出贴图")
         button.clicked.connect(self.ExportTexture)
         layout.addWidget(button)
+
+        buttonTEST = QPushButton("测试文件")
+        buttonTEST.clicked.connect(button_clinked)
+        layout.addWidget(buttonTEST)
         self.setLayout(layout)
+
+
 
     def ExportTexture(self):
         import unreal

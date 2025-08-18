@@ -74,3 +74,5 @@ Plugins/**/Intermediate/*
 DerivedDataCache/*
 */Binaries
 */Intermediate
+
+*/.idea
