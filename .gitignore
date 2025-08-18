@@ -76,3 +76,4 @@ DerivedDataCache/*
 */Intermediate
 
 */.idea
+*/__pycache__
