@@ -37,7 +37,7 @@ void UGlobalShaderFunctionLibrary::DrawRenderTarget_RenderThread(FRHICommandList
 	ERHIFeatureLevel::Type FeatureLevel)
 {
 	 // 获取渲染目标纹理
-    FRHITexture2D* RenderTargetTexture = OutRenderTargetResource->GetRenderTargetTexture();
+    FTextureRHIRef RenderTargetTexture = OutRenderTargetResource->GetRenderTargetTexture();
     RHICmdList.Transition(FRHITransitionInfo(RenderTargetTexture, ERHIAccess::SRVMask, ERHIAccess::RTV));
 
     // 设置渲染通过信息

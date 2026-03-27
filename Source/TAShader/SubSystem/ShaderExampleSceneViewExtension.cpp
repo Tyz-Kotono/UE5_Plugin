@@ -186,7 +186,7 @@ void FShaderExampleSceneViewExtension::CreatePooledRenderTarget_RenderThread()
 	//获取渲染目标纹理的 RHI 引用
 	//将纹理绑定到渲染管线上
 	//可以使用 RHI 引用来创建、更新或销毁纹理
-	const FTexture2DRHIRef RenderTargetRHI = RenderTargetResource->GetRenderTargetTexture();
+	const FTextureRHIRef  RenderTargetRHI = RenderTargetResource->GetRenderTargetTexture();
 	if (RenderTargetRHI.GetReference() == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Render Target RHI is null"));
