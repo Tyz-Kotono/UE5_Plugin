@@ -11,22 +11,27 @@ SamplerState PreviousTextureSampler;
 // G = Curve          (default 0.539,  贝塞尔控制点Y)
 // B = GrassCenterWidth (default 0.15, 草叶中心宽度基础值)
 // A = GrassWidth     (default 22.0,   草叶宽度缩放)
-float4 MCWW;
+float4 GrassShape;
+
+// R = Rim Position       (默认 0.5,   边缘光起始位置)
+// G = Rim Softness       (默认 0.539, 边缘柔和度)
+// B = Midrib Softness    (默认 0.15,  中脉宽度)
+// A = Rim Intensity      (默认 22.0,  边缘光强度)
+float4 MidribRimData;
 
 uint bHasPrevious;
 
-RWTexture2D<float4> OutTexture2D;
+RWTexture2D<float4> GrassPositionTexture2D;
+RWTexture2D<float4> GrassNormalTexture2D;
 
 // 计算贝塞尔曲线偏移
 // UV.x = TexCoord.u → 贝塞尔参数 t（草叶高度方向）
 float2 GetGrassPoint(float2 UV)
 {
 	float t = UV.x; // TexCoord.u 作为贝塞尔参数
-	
 	float2 P0 = float2(0.0, 0.0);
-	float2 P1 = float2(MCWW.x, MCWW.y); 
+	float2 P1 = float2(GrassShape.x, GrassShape.y);
 	float2 P2 = float2(1.0, 0.0);
-
 
 
 	float2 B1 = lerp(P0, P1, t);
@@ -38,17 +43,53 @@ float2 GetGrassPoint(float2 UV)
 	return (B3 - B0) * 100.0;
 }
 
+float2 GetGrassNormal(float2 UV)
+{
+	float2 P0 = float2(0.0, 0.0);
+	float2 P1 = float2(GrassShape.x, GrassShape.y);
+	float2 P2 = float2(1.0, 0.0);
+
+	float2 Derivative = 2 * (1 - UV.x) * (P1 - P0) + 2 * UV.x * (P2 - P1);
+	return Derivative * float2(1.0, -1.0);
+}
+
 // 计算草叶宽度（切线空间Y分量）
 // UV.x = TexCoord.u（横向截面）
 // UV.y = TexCoord.v（高度）
 float GetGrassWidth(float2 UV)
 {
-	float centerWidth = MCWW.z + UV.x; 
+	float centerWidth = GrassShape.z + UV.x;
 	float widthUV = UV.y - 0.5;
 	float widthMask = 1 - UV.x;
 	float grassWidth = widthUV * widthMask * centerWidth;
 	float Scale = 100 * UV.y;
-	return grassWidth * MCWW.w - Scale + 50;
+	return grassWidth * GrassShape.w - Scale + 50;
+}
+
+float CalculateGrassMidribAndRimMask(float2 UV)
+{
+	// 解包参数
+	float rimPosition = MidribRimData.r; // 边缘光起始位置
+	float rimSoftness = MidribRimData.g; // 边缘柔和度（本网络未直接使用）
+	float midribSoftness = MidribRimData.b; // 中脉宽度
+	float rimIntensity = MidribRimData.a; // 边缘光强度
+
+	float centerMask = UV.y - 0.5;
+	float absMask = abs(centerMask);
+
+	// 中脉遮罩
+	float midribMask = smoothstep(-MidribRimData.b, MidribRimData.b, centerMask);
+
+	// 边缘遮罩（使用 rimSoftness 作为边缘宽度）
+	float edgeMask = rimPosition - midribSoftness;
+	edgeMask = smoothstep(rimPosition, edgeMask, absMask);
+
+
+	// 混合并输出
+	float blendedMask = smoothstep(1 - midribMask, midribMask, edgeMask);
+	blendedMask = lerp(1.0, -1.0, blendedMask);
+
+	return blendedMask * rimIntensity;
 }
 
 // [numthreads(2, 8, 1)]
@@ -68,10 +109,14 @@ void TsushimaGrassMain(uint3 DTid : SV_DispatchThreadID)
 	// 计算切线空间向量各分量
 	float2 GrassPoint = GetGrassPoint(uv); // 贝塞尔偏移 (x, z分量)
 	float GrassWidth = GetGrassWidth(uv); // 宽度 (y分量)
+	float2 GrassNormal = GetGrassNormal(uv);
+	float GrassNormalY = CalculateGrassMidribAndRimMask(uv);
 
-	float3 tangentOffset = float3(uv.x, GrassWidth, GrassPoint.y);
+	// x 没有用
+	float3 GrassPosition = float3(GrassPoint.x, GrassWidth, GrassPoint.y);
+	float3 Normal = float3(GrassNormal.y, GrassNormalY, GrassNormal.x);
 
 	// 输出到 RT，材质会采样后做 TransformVector(Tangent→World)
-	OutTexture2D[pixelCoord] = float4(tangentOffset, uv.y);
+	GrassPositionTexture2D[pixelCoord] = float4(GrassPosition, uv.y);
+	GrassNormalTexture2D[pixelCoord] = float4(Normal, uv.x);
 }
-

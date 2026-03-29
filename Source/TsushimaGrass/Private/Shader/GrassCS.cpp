@@ -2,19 +2,14 @@
 
 
 #include "Shader/GrassCS.h"
-
-#include "BaseShaderPS.h"
 #include "PixelShaderUtils.h"
 #include "RenderGraphEvent.h"
 #include "RenderGraphUtils.h"
-#include "RenderTargetPool.h"
 #include "ShaderParameterStruct.h"
 #include "SystemTextures.h"
 #include "TsushimaRenderSetting.h"
 #include "Engine/TextureRenderTarget2D.h"
-#include "PostProcess/PostProcessInputs.h"
 #include "Runtime/Renderer/Private/SceneRendering.h"
-#include "SceneRenderTargetParameters.h"
 
 
 class FTsushimaGrassCS : public FGlobalShader
@@ -25,15 +20,17 @@ class FTsushimaGrassCS : public FGlobalShader
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters,)
 		SHADER_PARAMETER(uint32, Resolution)
 		//R MidPoint G Curve B Center Width A Button Width
-		SHADER_PARAMETER(FVector4f, MCWW)
+		SHADER_PARAMETER(FVector4f, GrassShape)
+		SHADER_PARAMETER(FVector4f, MidribRimData)
 		SHADER_PARAMETER(uint32, bHasPrevious)
 		SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture2D<float>, PreviousTexture)
-		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutTexture2D)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, GrassPositionTexture2D)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, GrassNormalTexture2D)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:
-	static constexpr uint32 NumThreadsX = 2;
-	static constexpr uint32 NumThreadsY = 8;
+	static constexpr uint32 NumThreadsX = 16;
+	static constexpr uint32 NumThreadsY = 16;
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
@@ -59,7 +56,8 @@ void FTsushimaGrassInterface::Grass_RenderThread(
 	uint32 Resolution,
 	const UTsushimaRenderSetting* GrassSpec,
 	FRDGTextureRef PreviousTexture,
-	FRDGTextureRef OutputTextureRef)
+	FRDGTextureRef OutputPositionTexture,
+	FRDGTextureRef OutputNormalTexture)
 {
 	RDG_EVENT_SCOPE(GraphBuilder, "TsushimaGrass");
 
@@ -75,28 +73,30 @@ void FTsushimaGrassInterface::Grass_RenderThread(
 		                                     : GraphBuilder.RegisterExternalTexture(GSystemTextures.BlackDummy);
 
 	Parameters->PreviousTexture = GraphBuilder.CreateSRV(SafePreviousTexture);
-	Parameters->MCWW = FVector4f(
+	Parameters->GrassShape = FVector4f(
 		GrassSpec->MinPoint,
 		GrassSpec->GrassCurve,
 		GrassSpec->CenterWidth,
 		GrassSpec->ButtonWidth
 	);
+
+	Parameters->MidribRimData = FVector4f(
+		GrassSpec->RimPosition,
+		GrassSpec->RimSoftness,
+		GrassSpec->MidribSoftness,
+		GrassSpec->RimIntensity
+	);
 	Parameters->Resolution = Resolution;
 	Parameters->bHasPrevious = bHasPrevious ? 1 : 0;
-	Parameters->OutTexture2D = GraphBuilder.CreateUAV(OutputTextureRef);
+	Parameters->GrassPositionTexture2D = GraphBuilder.CreateUAV(OutputPositionTexture);
+	Parameters->GrassNormalTexture2D = GraphBuilder.CreateUAV(OutputNormalTexture);
 
 	const FIntVector GroupCount(
 		FMath::DivideAndRoundUp(Resolution, FTsushimaGrassCS::NumThreadsX),
 		FMath::DivideAndRoundUp(Resolution, FTsushimaGrassCS::NumThreadsY),
 		1
 	);
-	// UE_LOG(LogTemp, Warning, TEXT(" Size: %d x %d"),
-	//        OutputTextureRef->Desc.Extent.X,
-	//        OutputTextureRef->Desc.Extent.Y
-	// );
-	// UE_LOG(LogTemp, Warning, TEXT("OutputTexture Format: %d"),
-	//        (int32)OutputTextureRef->Desc.Format
-	// );
+
 	FComputeShaderUtils::AddPass(
 		GraphBuilder,
 		RDG_EVENT_NAME("TsushimaGrassCS"),
@@ -115,30 +115,37 @@ void FTsushimaGrassInterface::AddPass_RenderThread(
 	TRefCountPtr<IPooledRenderTarget>& PooledPersistentRT,
 	int32& CacheResolution)
 {
-	if (!GrassSpec->GrassRT.IsValid())
+	if (!GrassSpec->GrassPositionRT.IsValid() || !GrassSpec->GrassNormalRT.IsValid())
 	{
 		return;
 	}
 
-	auto RenderTarget = GrassSpec->GrassRT.Get();
+	auto GrassPositionRT = GrassSpec->GrassPositionRT.Get();
+	auto GrassNormalRT = GrassSpec->GrassNormalRT.Get();
 
-	FTextureRenderTargetResource* RTResource = RenderTarget->GetRenderTargetResource();
-	if (!RTResource)
+
+	FTextureRenderTargetResource* PositionRTResource = GrassPositionRT->GetRenderTargetResource();
+	FTextureRenderTargetResource* NormalRTResource = GrassNormalRT->GetRenderTargetResource();
+	if (!PositionRTResource)
 	{
 		return;
 	}
 
 	// === 外部 RT ===
-	FRHITexture* TextureRHI = RTResource->GetRenderTargetTexture();
+	FRHITexture* TextureRHI = PositionRTResource->GetRenderTargetTexture();
 
-	FRDGTextureRef RDGTexture = GraphBuilder.RegisterExternalTexture(
-		CreateRenderTarget(TextureRHI, TEXT("TsushimaGrassRT"))
+	FRDGTextureRef RDGPositionTexture = GraphBuilder.RegisterExternalTexture(
+		CreateRenderTarget(PositionRTResource->GetRenderTargetTexture(), TEXT("GrassPositionRT"))
 	);
 
-	const int32 Resolution = RenderTarget->SizeX;
+	FRDGTextureRef RDGNormalTexture = GraphBuilder.RegisterExternalTexture(
+		CreateRenderTarget(NormalRTResource->GetRenderTargetTexture(), TEXT("GrassNormalRT"))
+	);
+
+	const int32 Resolution = GrassPositionRT->SizeX;
 	//TODO
-	//|| RenderTarget->SizeY != Resolution
-	if (Resolution <= 0  || RenderTarget->GetFormat() != PF_FloatRGBA)
+	//|| GrassPositionRT->SizeY != Resolution
+	if (Resolution <= 0 || GrassPositionRT->GetFormat() != PF_FloatRGBA)
 	{
 		return;
 	}
@@ -149,23 +156,21 @@ void FTsushimaGrassInterface::AddPass_RenderThread(
 		ResetPersistentResources(PooledPersistentRT);
 		CacheResolution = Resolution;
 	}
-	
+
 
 	const FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 
 	//TODO
 	// === 输出 RT ===  Resolution
 	FRDGTextureDesc OutputDesc = FRDGTextureDesc::Create2D(
-		FIntPoint(RenderTarget->SizeX, RenderTarget->SizeY),
+		FIntPoint(Resolution, Resolution),
 		PF_FloatRGBA,
 		FClearValueBinding::Black,
 		TexCreate_ShaderResource | TexCreate_UAV
 	);
 
-	FRDGTextureRef RDGOutputTexture = GraphBuilder.CreateTexture(
-		OutputDesc,
-		TEXT("TsushimaGrassOutput")
-	);
+	FRDGTextureRef RDGOutputPosition = GraphBuilder.CreateTexture(OutputDesc, TEXT("GrassPositionOutput"));
+	FRDGTextureRef RDGOutputNormal = GraphBuilder.CreateTexture(OutputDesc, TEXT("GrassNormalOutput"));
 
 	// =========================
 	// 历史帧处理
@@ -187,14 +192,16 @@ void FTsushimaGrassInterface::AddPass_RenderThread(
 		Resolution,
 		GrassSpec,
 		PreviousRDGTexture,
-		RDGOutputTexture
+		RDGOutputPosition,
+		RDGOutputNormal // ✅ 新增
 	);
 
 	// === Copy 到目标 RT ===
-	AddCopyTexturePass(GraphBuilder, RDGOutputTexture, RDGTexture);
+	AddCopyTexturePass(GraphBuilder, RDGOutputPosition, RDGPositionTexture);
+	AddCopyTexturePass(GraphBuilder, RDGOutputNormal, RDGNormalTexture);
 
 	// === 提取为下一帧历史 ===
-	GraphBuilder.QueueTextureExtraction(RDGOutputTexture, &PooledPersistentRT);
+	GraphBuilder.QueueTextureExtraction(RDGOutputPosition, &PooledPersistentRT);
 }
 
 void FTsushimaGrassInterface::ResetPersistentResources(TRefCountPtr<IPooledRenderTarget>& PooledPersistentRT)

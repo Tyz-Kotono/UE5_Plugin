@@ -18,14 +18,15 @@ public:
 		UTsushimaRenderSetting* InGrassSpec,
 		TRefCountPtr<IPooledRenderTarget>& PooledPersistentRT,
 		int32& CacheResolution);
-	
+
 	static void Grass_RenderThread(
 		FRDGBuilder& GraphBuilder,
 		const FGlobalShaderMap* ShaderMap,
 		uint32 Resolution,
 		const UTsushimaRenderSetting* GrassSpec,
 		FRDGTextureRef PreviousTexture,
-		FRDGTextureRef OutputTextureRef);
-	
+		FRDGTextureRef OutputPositionTexture,
+		FRDGTextureRef OutputNormalTexture);
+
 	static void ResetPersistentResources(TRefCountPtr<IPooledRenderTarget>& PooledPersistentRT);
 };
