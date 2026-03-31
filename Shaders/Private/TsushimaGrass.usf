@@ -6,17 +6,13 @@ uint Resolution;
 Texture2D<float> PreviousTexture;
 SamplerState PreviousTextureSampler;
 
-// 正确的参数语义：
-// R = MidPoint       (default 0.5,    贝塞尔控制点X)
-// G = Curve          (default 0.539,  贝塞尔控制点Y)
-// B = GrassCenterWidth (default 0.15, 草叶中心宽度基础值)
-// A = GrassWidth     (default 22.0,   草叶宽度缩放)
+// ===== 参数 =====
 float4 GrassShape;
+// x = MidPoint
+// y = Curve
+// z = CenterWidth
+// w = Width Scale
 
-// R = Rim Position       (默认 0.5,   边缘光起始位置)
-// G = Rim Softness       (默认 0.539, 边缘柔和度)
-// B = Midrib Softness    (默认 0.15,  中脉宽度)
-// A = Rim Intensity      (默认 22.0,  边缘光强度)
 float4 MidribRimData;
 
 uint bHasPrevious;
@@ -24,75 +20,122 @@ uint bHasPrevious;
 RWTexture2D<float4> GrassPositionTexture2D;
 RWTexture2D<float4> GrassNormalTexture2D;
 
-// 计算贝塞尔曲线偏移
-// UV.x = TexCoord.u → 贝塞尔参数 t（草叶高度方向）
-float2 GetGrassPoint(float2 UV)
+
+// ===== 输入结构体 =====
+struct FGrassData
 {
-	float t = UV.x; // TexCoord.u 作为贝塞尔参数
-	float2 P0 = float2(0.0, 0.0);
-	float2 P1 = float2(GrassShape.x, GrassShape.y);
-	float2 P2 = float2(1.0, 0.0);
+	float t; // 贝塞尔参数（长度方向）
+	float height; // 高度（0~1）
+	float widthCoord; // 横向（-0.5~0.5）
+
+	float2 uv;
+
+	float2 P0;
+	float2 P1;
+	float2 P2;
+	
+	//Wind
+	float windOffset;
+	float bend;
+	float thickness;
+};
 
 
-	float2 B1 = lerp(P0, P1, t);
-	float2 B2 = lerp(P1, P2, t);
+// ===== 贝塞尔点 =====
+float2 GetGrassPoint(FGrassData data)
+{
+	float t = data.t;
+
+	float2 B1 = lerp(data.P0, data.P1, t);
+	float2 B2 = lerp(data.P1, data.P2, t);
 	float2 B3 = lerp(B1, B2, t);
 
-	float2 B0 = float2(t, 0.0);
+	float2 Base = float2(t, 0.0);
 
-	return (B3 - B0) * 100.0;
+	return (B3 - Base) * 100.0;
 }
 
-float2 GetGrassNormal(float2 UV)
-{
-	float2 P0 = float2(0.0, 0.0);
-	float2 P1 = float2(GrassShape.x, GrassShape.y);
-	float2 P2 = float2(1.0, 0.0);
 
-	float2 Derivative = 2 * (1 - UV.x) * (P1 - P0) + 2 * UV.x * (P2 - P1);
+// ===== 贝塞尔导数（切线）=====
+float2 GetGrassNormal(FGrassData data)
+{
+	float t = data.t;
+
+	float2 Derivative =
+		2 * (1 - t) * (data.P1 - data.P0) +
+		2 * t * (data.P2 - data.P1);
+
+	// UE 切线空间修正
 	return Derivative * float2(1.0, -1.0);
 }
 
-// 计算草叶宽度（切线空间Y分量）
-// UV.x = TexCoord.u（横向截面）
-// UV.y = TexCoord.v（高度）
-float GetGrassWidth(float2 UV)
+
+// ===== 宽度计算 =====
+float GetGrassWidth(FGrassData data)
 {
-	float centerWidth = GrassShape.z + UV.x;
-	float widthUV = UV.y - 0.5;
-	float widthMask = 1 - UV.x;
-	float grassWidth = widthUV * widthMask * centerWidth;
-	float Scale = 100 * UV.y;
-	return grassWidth * GrassShape.w - Scale + 50;
+	float centerWidth = GrassShape.z + data.t;
+
+	float widthMask = 1.0 - data.t;
+
+	float grassWidth = data.widthCoord * widthMask * centerWidth;
+
+	float scale = 100.0 * data.height;
+
+	return grassWidth * GrassShape.w - scale + 50.0;
 }
 
-float CalculateGrassMidribAndRimMask(float2 UV)
-{
-	// 解包参数
-	float rimPosition = MidribRimData.r; // 边缘光起始位置
-	float rimSoftness = MidribRimData.g; // 边缘柔和度（本网络未直接使用）
-	float midribSoftness = MidribRimData.b; // 中脉宽度
-	float rimIntensity = MidribRimData.a; // 边缘光强度
 
-	float centerMask = UV.y - 0.5;
+// ===== 中脉 + 边缘光 =====
+float CalculateGrassMidribAndRimMask(FGrassData data)
+{
+	float rimPosition = MidribRimData.r;
+	float rimSoftness = MidribRimData.g;
+	float midribSoftness = MidribRimData.b;
+	float rimIntensity = MidribRimData.a;
+
+	float centerMask = data.widthCoord;
 	float absMask = abs(centerMask);
 
-	// 中脉遮罩
-	float midribMask = smoothstep(-MidribRimData.b, MidribRimData.b, centerMask);
+	// 中脉
+	float midribMask = smoothstep(-midribSoftness, midribSoftness, centerMask);
 
-	// 边缘遮罩（使用 rimSoftness 作为边缘宽度）
+	// 边缘
 	float edgeMask = rimPosition - midribSoftness;
 	edgeMask = smoothstep(rimPosition, edgeMask, absMask);
 
+	float blended = smoothstep(1 - midribMask, midribMask, edgeMask);
+	blended = lerp(1.0, -1.0, blended);
 
-	// 混合并输出
-	float blendedMask = smoothstep(1 - midribMask, midribMask, edgeMask);
-	blendedMask = lerp(1.0, -1.0, blendedMask);
-
-	return blendedMask * rimIntensity;
+	return blended * rimIntensity;
 }
 
-// [numthreads(2, 8, 1)]
+float CalculateGrassTilt(FGrassData data, float3 Normal)
+{
+	float Mask = pow(1 - data.t, 0.5) * (pow(data.t + 0.05, 0.33));
+	float3 NormalMask = Normal * float3(1.0, 0.0, 1.00);
+	return Mask * NormalMask;
+}
+
+// ===== 构造数据 =====
+FGrassData BuildGrassData(float2 uv)
+{
+	FGrassData data;
+
+	data.uv = uv;
+
+	data.t = uv.x; // 长度方向
+	data.height = uv.y; // 高度
+	data.widthCoord = uv.y - 0.5; // 横向（居中）
+
+	data.P0 = float2(0.0, 0.0);
+	data.P1 = float2(GrassShape.x, GrassShape.y);
+	data.P2 = float2(1.0, 0.0);
+
+	return data;
+}
+
+
+// ===== 主函数 =====
 [numthreads(16, 16, 1)]
 void TsushimaGrassMain(uint3 DTid : SV_DispatchThreadID)
 {
@@ -100,23 +143,24 @@ void TsushimaGrassMain(uint3 DTid : SV_DispatchThreadID)
 		return;
 
 	int2 pixelCoord = int2(DTid.xy);
-	// float2 uv = (float2(pixelCoord) + 0.5f) / float(Resolution);
+
 	float2 uv = float2(pixelCoord) / float(Resolution - 1);
-	uv = lerp(0, 1, uv);
-	// uv.x ∈ [0,1] → 贝塞尔参数t，同时也是草叶横向截面U
-	// uv.y ∈ [0,1] → 草叶高度V（0=根部，1=尖端）
 
-	// 计算切线空间向量各分量
-	float2 GrassPoint = GetGrassPoint(uv); // 贝塞尔偏移 (x, z分量)
-	float GrassWidth = GetGrassWidth(uv); // 宽度 (y分量)
-	float2 GrassNormal = GetGrassNormal(uv);
-	float GrassNormalY = CalculateGrassMidribAndRimMask(uv);
+	// ===== 构造统一输入 =====
+	FGrassData data = BuildGrassData(uv);
 
-	// x 没有用
-	float3 GrassPosition = float3(GrassPoint.x, GrassWidth, GrassPoint.y);
-	float3 Normal = float3(GrassNormal.y, GrassNormalY, GrassNormal.x);
+	// ===== 计算 =====
+	float2 grassPoint = GetGrassPoint(data);
+	float grassWidth = GetGrassWidth(data);
+	float2 grassNormal = GetGrassNormal(data);
+	float normalY = CalculateGrassMidribAndRimMask(data);
 
-	// 输出到 RT，材质会采样后做 TransformVector(Tangent→World)
-	GrassPositionTexture2D[pixelCoord] = float4(GrassPosition, uv.y);
-	GrassNormalTexture2D[pixelCoord] = float4(Normal, uv.x);
+	float3 position = float3(grassPoint.x, grassWidth, grassPoint.y);
+	float3 normal = float3(grassNormal.y, normalY, grassNormal.x);
+
+
+	
+	// ===== 输出 =====
+	GrassPositionTexture2D[pixelCoord] = float4(position, data.height);
+	GrassNormalTexture2D[pixelCoord] = float4(normal, data.t);
 }
