@@ -13,6 +13,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FExampleParams,)
 	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneColorTexture)
 	SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
 	SHADER_PARAMETER_STRUCT_INCLUDE(FSceneTextureShaderParameters, ShaderParameters)
+	SHADER_PARAMETER_STRUCT_INCLUDE(FSceneTextureShaderParameters, SceneTextures)
 
 	//运行时绑定渲染目标
 	RENDER_TARGET_BINDING_SLOTS()

@@ -1,4 +1,4 @@
-﻿#include "ShaderExampleSceneViewExtension.h"
+#include "ShaderExampleSceneViewExtension.h"
 
 
 #include "PixelShaderUtils.h"
@@ -8,14 +8,14 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Runtime/Renderer/Internal/PostProcess/PostProcessInputs.h"
 #include "Runtime/Renderer/Private/SceneRendering.h"
-#include "ShaderExample/Shader/BaseShaderPS.h"
+#include "../Shader/BaseShaderPS.h"
 #include "TAShader/Shader/CSBlurShader.h"
 #include "TAShader/Shader/RenderTargetShader.h"
 
 DECLARE_GPU_DRAWCALL_STAT(BasePass);
 DECLARE_GPU_DRAWCALL_STAT(RenderTargetPass);
 DECLARE_GPU_DRAWCALL_STAT(ComputerShaderBlurPass);
-
+DECLARE_GPU_STAT(ComputerShaderBlur);
 #pragma region BaseFunction
 FShaderExampleSceneViewExtension::FShaderExampleSceneViewExtension(const FAutoRegister& AutoRegister): FSceneViewExtensionBase(AutoRegister){}
 
@@ -86,9 +86,7 @@ void FShaderExampleSceneViewExtension::BaseGlobalShader_RenderThread(FRDGBuilder
 {
 	// UE_LOG(LogTemp, Warning, TEXT("这是一个调试信息！"));
 	//Unreal Insights
-	RDG_GPU_STAT_SCOPE(GraphBuilder,BasePass);
-	// RenderDoc
-	RDG_EVENT_SCOPE(GraphBuilder,"Base Pass");
+	RDG_EVENT_SCOPE_STAT(GraphBuilder,BasePass,"BasePass");
 	
 	//抓取场景纹理
 	const FSceneTextureShaderParameters SceneTextures = CreateSceneTextureShaderParameters(GraphBuilder, View, ESceneTextureSetupMode::SceneColor | ESceneTextureSetupMode::GBuffers);
@@ -129,9 +127,7 @@ void FShaderExampleSceneViewExtension::RenderTarget_RenderThread(FRDGBuilder& Gr
 		CreatePooledRenderTarget_RenderThread();
 	}
 	//Unreal Insights
-	RDG_GPU_STAT_SCOPE(GraphBuilder,RenderTargetPass);
-	// RenderDoc
-	RDG_EVENT_SCOPE(GraphBuilder,"Render Target Pass");
+	RDG_EVENT_SCOPE_STAT(GraphBuilder,RenderTargetPass,"Render Target Pass");
 	
 	const FScreenPassTexture SceneColourTexture((*Inputs.SceneTextures)->SceneColorTexture, Viewport);
 	// Needs to be registered every frame
@@ -228,8 +224,7 @@ void FShaderExampleSceneViewExtension::ComputerShaderBlur_RenderThread(FRDGBuild
 	const FScreenPassTexture SceneColourTexture((*Inputs.SceneTextures)->SceneColorTexture, Viewport);
 
 	// RenderDoc 调试信息
-	RDG_GPU_STAT_SCOPE(GraphBuilder, ComputerShaderBlur Pass);
-	RDG_EVENT_SCOPE(GraphBuilder, "Compute Shader Blur");
+	RDG_EVENT_SCOPE_STAT(GraphBuilder,ComputerShaderBlur,"Compute Shader Blur");
 
 	// 创建临时纹理来存储模糊后的结果
 	FRDGTextureRef TempTexture = GraphBuilder.CreateTexture(SceneColourTexture.Texture->Desc, TEXT("TempTexture"));

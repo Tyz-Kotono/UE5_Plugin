@@ -1,6 +1,7 @@
-﻿#pragma once
+#pragma once
 #include "CoreMinimal.h"
 #include "DataDrivenShaderPlatformInfo.h"
+#include "ShaderCompilerCore.h"
 #include "PostProcess/PostProcessInputs.h"
 
 BEGIN_SHADER_PARAMETER_STRUCT(FCSBlurParams,)
