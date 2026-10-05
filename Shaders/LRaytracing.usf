@@ -1,0 +1,44 @@
+﻿#include "/Engine/Private/RayTracing/RayTracingCommon.ush"
+
+RaytracingAccelerationStructure TLAS;
+RWTexture2D<float4> RWOutputTexture;
+
+RAY_TRACING_ENTRY_RAYGEN(MainRGS)
+{
+	const uint2 DispatchThreadId = DispatchRaysIndex().xy;
+	const uint2 PixelCoord = DispatchThreadId + View.ViewRectMin.xy;
+	const float2 RenderTargetUV = (float2(PixelCoord) + 0.5f) * View.BufferSizeAndInvSize.zw;
+
+	FRayDesc Ray = CreatePrimaryRay(RenderTargetUV);
+	FDefaultPayload Payload = (FDefaultPayload)0;
+
+	uint RayFlags = 0
+		| RAY_FLAG_FORCE_OPAQUE					// don't run anyhit shader
+		| RAY_FLAG_CULL_BACK_FACING_TRIANGLES;	// use back face culling
+
+	TraceRay(
+		TLAS,									// AccelerationStructure
+		RayFlags,
+		RAY_TRACING_MASK_ALL,
+		RAY_TRACING_SHADER_SLOT_MATERIAL,		// RayContributionToHitGroupIndex
+		RAY_TRACING_NUM_SHADER_SLOTS,			// MultiplierForGeometryContributionToShaderIndex
+		0,										// MissShaderIndex
+		Ray.GetNativeDesc(),					// RayDesc
+		Payload);								// Payload
+
+	RWOutputTexture[DispatchThreadId] = Payload.IsHit()
+											? float4(1, 0, 1, 1)
+											: float4(0, 0, 0, 1);
+}
+
+
+RAY_TRACING_ENTRY_CLOSEST_HIT(MainCHS,
+							  FDefaultPayload, Payload,
+							  FRayTracingIntersectionAttributes, Attributes)
+{
+	Payload.Barycentrics = Attributes.GetBarycentrics();
+	Payload.InstanceID = InstanceID();
+	Payload.InstanceIndex = InstanceIndex();
+	Payload.PrimitiveIndex = PrimitiveIndex();
+	Payload.HitT = RayTCurrent();
+}
